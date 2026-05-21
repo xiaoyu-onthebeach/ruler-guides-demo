@@ -22,16 +22,18 @@ export function drawGuides(
   height: number,
   guides: Guide[],
   viewport: ViewportCtx,
-  activeId: string | null,       // hovered or being dragged → full opacity
+  activeId: string | null,
   scenes: Scene[] = [],
-  pendingDeleteId: string | null = null, // being dragged off-edge → clamped gray style
+  pendingDeleteId: string | null = null,
+  creatingIds: Set<string> = new Set(),
 ): void {
   ctx.save();
   ctx.lineWidth = 1;
 
   for (const guide of guides) {
     const isPendingDelete = guide.id === pendingDeleteId;
-    const isActive        = !isPendingDelete && guide.id === activeId;
+    const isCreating      = creatingIds.has(guide.id);
+    const isActive        = !isPendingDelete && (guide.id === activeId || isCreating);
 
     ctx.globalAlpha  = isPendingDelete ? 0.3  : (isActive ? 1.0 : 0.6);
     ctx.strokeStyle  = isPendingDelete ? 'rgba(120,120,130,1)' : (isActive ? GUIDE_ACTIVE_COLOR : GUIDE_COLOR);
@@ -49,7 +51,7 @@ export function drawGuides(
       ctx.stroke();
     } else if (scope.kind === 'scene') {
       const scene = scenes.find(s => s.id === scope.sceneId);
-      if (scene) drawSceneGuide(ctx, guide, width, height, viewport, scene, isActive);
+      if (scene) drawSceneGuide(ctx, guide, width, height, viewport, scene, isActive, isCreating);
     }
   }
 
@@ -199,12 +201,23 @@ function drawSceneGuide(
   viewport: ViewportCtx,
   scene: Scene,
   isActive: boolean,
+  isCreating: boolean,
 ): void {
   const worldPos = guide.position + (guide.axis === 'x' ? scene.bbox.x : scene.bbox.y);
 
   if (guide.axis === 'x') {
     const sx = Math.round(worldToScreenX(worldPos, viewport)) + 0.5;
     if (sx < RULER_SIZE || sx > width) return;
+
+    // While being created and outside the scene x-span → full solid line
+    if (isCreating && (worldPos < scene.bbox.x || worldPos > scene.bbox.x + scene.bbox.width)) {
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(sx, RULER_SIZE);
+      ctx.lineTo(sx, height);
+      ctx.stroke();
+      return;
+    }
 
     const sceneTop   = worldToScreenY(scene.bbox.y, viewport);
     const sceneBot   = worldToScreenY(scene.bbox.y + scene.bbox.height, viewport);
@@ -230,6 +243,16 @@ function drawSceneGuide(
   } else {
     const sy = Math.round(worldToScreenY(worldPos, viewport)) + 0.5;
     if (sy < RULER_SIZE || sy > height) return;
+
+    // While being created and outside the scene y-span → full solid line
+    if (isCreating && (worldPos < scene.bbox.y || worldPos > scene.bbox.y + scene.bbox.height)) {
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(RULER_SIZE, sy);
+      ctx.lineTo(width, sy);
+      ctx.stroke();
+      return;
+    }
 
     const sceneLeft   = worldToScreenX(scene.bbox.x, viewport);
     const sceneRight  = worldToScreenX(scene.bbox.x + scene.bbox.width, viewport);

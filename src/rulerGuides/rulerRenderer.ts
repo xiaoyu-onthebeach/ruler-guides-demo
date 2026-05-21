@@ -17,9 +17,10 @@ const MINOR_TICK_LENGTH = 4;
 const MINOR_TICKS_PER_MAJOR = 5;
 
 // Colors
-const RULER_BG = '#131316';
-const TICK_MAJOR = '#50505D';
-const TICK_MINOR = 'rgba(80, 80, 93, 0.8)';
+const RULER_BG    = '#131316';
+const TICK_MAJOR  = '#50505D';
+const TICK_MINOR  = 'rgba(80, 80, 93, 0.8)';
+const LABEL_COLOR = 'rgba(255, 255, 255, 0.5)';
 const BORDER_COLOR = 'rgba(255, 255, 255, 0.08)';
 
 function crisp(n: number): number {
@@ -60,6 +61,8 @@ function drawTopRulerTicks(
   rulerState: RulerState,
   viewport: ViewportCtx,
   step: number,
+  showMinorTicks: boolean,
+  showNumbers: boolean,
 ): void {
   const origin = activeOrigin(rulerState);
   const worldLeft = screenToWorldX(RULER_SIZE, viewport);
@@ -67,7 +70,7 @@ function drawTopRulerTicks(
   const firstMajor = Math.ceil((worldLeft - origin.x) / step) * step + origin.x;
   const minorStep = step / MINOR_TICKS_PER_MAJOR;
 
-  ctx.font = '10px monospace';
+  if (showNumbers) ctx.font = '10px monospace';
 
   for (let wx = firstMajor; wx <= worldRight + step; wx += step) {
     const sx = crisp(worldToScreenX(wx, viewport));
@@ -80,14 +83,24 @@ function drawTopRulerTicks(
     ctx.lineTo(sx, RULER_SIZE);
     ctx.stroke();
 
-    ctx.strokeStyle = TICK_MINOR;
-    for (let i = 1; i < MINOR_TICKS_PER_MAJOR; i++) {
-      const msx = crisp(worldToScreenX(wx + i * minorStep, viewport));
-      if (msx < RULER_SIZE || msx > width) continue;
-      ctx.beginPath();
-      ctx.moveTo(msx, RULER_SIZE - MINOR_TICK_LENGTH);
-      ctx.lineTo(msx, RULER_SIZE);
-      ctx.stroke();
+    if (showNumbers) {
+      const label = String(Math.round(displayValue(wx, 'x', rulerState)));
+      ctx.fillStyle = LABEL_COLOR;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label, sx, 3);
+    }
+
+    if (showMinorTicks) {
+      ctx.strokeStyle = TICK_MINOR;
+      for (let i = 1; i < MINOR_TICKS_PER_MAJOR; i++) {
+        const msx = crisp(worldToScreenX(wx + i * minorStep, viewport));
+        if (msx < RULER_SIZE || msx > width) continue;
+        ctx.beginPath();
+        ctx.moveTo(msx, RULER_SIZE - MINOR_TICK_LENGTH);
+        ctx.lineTo(msx, RULER_SIZE);
+        ctx.stroke();
+      }
     }
   }
 }
@@ -98,6 +111,8 @@ function drawLeftRulerTicks(
   rulerState: RulerState,
   viewport: ViewportCtx,
   step: number,
+  showMinorTicks: boolean,
+  showNumbers: boolean,
 ): void {
   const origin = activeOrigin(rulerState);
   const worldTop = screenToWorldY(RULER_SIZE, viewport);
@@ -105,7 +120,7 @@ function drawLeftRulerTicks(
   const firstMajor = Math.ceil((worldTop - origin.y) / step) * step + origin.y;
   const minorStep = step / MINOR_TICKS_PER_MAJOR;
 
-  ctx.font = '10px monospace';
+  if (showNumbers) ctx.font = '10px monospace';
 
   for (let wy = firstMajor; wy <= worldBottom + step; wy += step) {
     const sy = crisp(worldToScreenY(wy, viewport));
@@ -118,14 +133,28 @@ function drawLeftRulerTicks(
     ctx.lineTo(RULER_SIZE, sy);
     ctx.stroke();
 
-    ctx.strokeStyle = TICK_MINOR;
-    for (let i = 1; i < MINOR_TICKS_PER_MAJOR; i++) {
-      const msy = crisp(worldToScreenY(wy + i * minorStep, viewport));
-      if (msy < RULER_SIZE || msy > height) continue;
-      ctx.beginPath();
-      ctx.moveTo(RULER_SIZE - MINOR_TICK_LENGTH, msy);
-      ctx.lineTo(RULER_SIZE, msy);
-      ctx.stroke();
+    if (showNumbers) {
+      const label = String(Math.round(displayValue(wy, 'y', rulerState)));
+      ctx.fillStyle = LABEL_COLOR;
+      ctx.save();
+      ctx.translate((RULER_SIZE - MAJOR_TICK_LENGTH) / 2, sy);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    }
+
+    if (showMinorTicks) {
+      ctx.strokeStyle = TICK_MINOR;
+      for (let i = 1; i < MINOR_TICKS_PER_MAJOR; i++) {
+        const msy = crisp(worldToScreenY(wy + i * minorStep, viewport));
+        if (msy < RULER_SIZE || msy > height) continue;
+        ctx.beginPath();
+        ctx.moveTo(RULER_SIZE - MINOR_TICK_LENGTH, msy);
+        ctx.lineTo(RULER_SIZE, msy);
+        ctx.stroke();
+      }
     }
   }
 }
@@ -140,9 +169,11 @@ export function drawTopRuler(
   rulerState: RulerState,
   viewport: ViewportCtx,
   step: number,
+  minorTicks = true,
+  showNumbers = true,
 ): void {
   drawTopRulerBg(ctx, width);
-  drawTopRulerTicks(ctx, width, rulerState, viewport, step);
+  drawTopRulerTicks(ctx, width, rulerState, viewport, step, minorTicks, showNumbers);
 }
 
 export function drawLeftRuler(
@@ -152,9 +183,11 @@ export function drawLeftRuler(
   rulerState: RulerState,
   viewport: ViewportCtx,
   step: number,
+  minorTicks = true,
+  showNumbers = true,
 ): void {
   drawLeftRulerBg(ctx, height);
-  drawLeftRulerTicks(ctx, height, rulerState, viewport, step);
+  drawLeftRulerTicks(ctx, height, rulerState, viewport, step, minorTicks, showNumbers);
 }
 
 export function drawCorner(ctx: CanvasRenderingContext2D): void {
@@ -191,6 +224,8 @@ export function drawRulers(
   rulerState: RulerState,
   viewport: ViewportCtx,
   now: number,
+  minorTicks = true,
+  showNumbers = true,
 ): { isAnimating: boolean } {
   const opacities = getRenderOpacities(rulerState, now);
 
@@ -202,16 +237,16 @@ export function drawRulers(
   if (opacities.isAnimating && rulerState.previousStep !== null) {
     ctx.save();
     ctx.globalAlpha = opacities.previous;
-    drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.previousStep);
-    drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.previousStep);
+    drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers);
+    drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers);
     ctx.restore();
   }
 
   // Current tick density fades in (or is fully opaque when not animating).
   ctx.save();
   ctx.globalAlpha = opacities.current;
-  drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.currentStep);
-  drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.currentStep);
+  drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers);
+  drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers);
   ctx.restore();
 
   drawCorner(ctx);

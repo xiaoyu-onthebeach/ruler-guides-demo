@@ -123,8 +123,12 @@ export function DemoApp() {
   const rafRef              = useRef<number | null>(null);
   const genSettingsPanelRef = useRef<HTMLDivElement>(null);
   const rulersVisibleRef    = useRef<boolean>(true);
+  const minorTicksRef       = useRef<boolean>(true);
+  const showNumbersRef      = useRef<boolean>(true);
 
-  const [ctxMenu, setCtxMenu] = useState<{ open: boolean; x: number; y: number }>({ open: false, x: 0, y: 0 });
+  const [ctxMenu, setCtxMenu]       = useState<{ open: boolean; x: number; y: number; kind: 'main' | 'left-ruler' }>({ open: false, x: 0, y: 0, kind: 'main' });
+  const [minorTicks, setMinorTicks] = useState(true);
+  const [showNumbers, setShowNumbers] = useState(true);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -159,7 +163,7 @@ export function DemoApp() {
       ctx.fillRect(0, 0, cssW, cssH);
     }
 
-    // 2. Scenes
+    // 2. Scene bodies — body fill + dots + images (guides will draw on top of these)
     for (const scene of scenes) {
       const sx = worldToScreenX(scene.bbox.x, vp);
       const sy = worldToScreenY(scene.bbox.y, vp);
@@ -167,53 +171,30 @@ export function DemoApp() {
       const sh = scene.bbox.height * zoom;
       if (sx + sw < RULER_SIZE || sy + sh < RULER_SIZE || sx > cssW || sy > cssH) continue;
 
-      const isSelected = scene.id === selectedId;
-      const outerRadius = Math.min(16 * zoom, sw / 2, sh / 2);
-
-      // ── Outer container (name header area) ──────────────────────────────────
-      ctx.beginPath();
-      ctx.roundRect(sx, sy, sw, sh, outerRadius);
-      ctx.fillStyle = '#131316';
-      ctx.fill();
-
-      const pad =  12* zoom;            // 24 world-px padding (scales with zoom)
-      const NAME_FONT = 12;             // fixed screen-px font size
-      const NAME_GAP  = 12;            // fixed screen-px gap between name and body
-
-      // Scene name inside the header area
-      if (sw > 2 * pad + 20 && sh > 2 * pad + NAME_FONT + NAME_GAP + 20) {
-        ctx.fillStyle    = isSelected ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
-        ctx.font         = `${NAME_FONT}px system-ui, -apple-system, sans-serif`;
-        ctx.textAlign    = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(scene.id, sx + pad, sy + pad + 4);
-      }
-
-      // ── Inner body rectangle ─────────────────────────────────────────────────
+      const pad       = 12 * zoom;
+      const NAME_FONT = 12;
+      const NAME_GAP  = 12;
       const bodyX = sx + pad;
       const bodyY = sy + pad + 4 + NAME_FONT + NAME_GAP;
       const bodyW = sw - 2 * pad;
       const bodyH = sh - pad - 4 - NAME_FONT - NAME_GAP - pad;
-      const bodyRadius = 0;
 
       if (bodyW > 20 && bodyH > 20) {
-        // Body background
         ctx.beginPath();
-        ctx.roundRect(bodyX, bodyY, bodyW, bodyH, bodyRadius);
+        ctx.rect(bodyX, bodyY, bodyW, bodyH);
         ctx.fillStyle = '#000000';
         ctx.fill();
 
-        // Centered dot grid inside body
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(bodyX, bodyY, bodyW, bodyH, bodyRadius);
+        ctx.rect(bodyX, bodyY, bodyW, bodyH);
         ctx.clip();
         const dotGap = 20 * zoom;
         if (dotGap >= 4) {
-          const offX  = (bodyW % dotGap) / 2;
-          const offY  = (bodyH % dotGap) / 2;
-          const iEnd  = Math.floor(bodyW / dotGap);
-          const jEnd  = Math.floor(bodyH / dotGap);
+          const offX = (bodyW % dotGap) / 2;
+          const offY = (bodyH % dotGap) / 2;
+          const iEnd = Math.floor(bodyW / dotGap);
+          const jEnd = Math.floor(bodyH / dotGap);
           ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
           ctx.beginPath();
           for (let i = 0; i <= iEnd; i++) {
@@ -228,7 +209,6 @@ export function DemoApp() {
         }
         ctx.restore();
 
-        // Images — drawn on top of dots, clipped to body rect
         const sceneImages = imageLayersRef.current.filter(img => img.sceneId === scene.id);
         if (sceneImages.length > 0) {
           ctx.save();
@@ -243,16 +223,9 @@ export function DemoApp() {
           ctx.restore();
         }
       }
-
-      // ── Outer border (drawn last, on top) ────────────────────────────────────
-      ctx.beginPath();
-      ctx.roundRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1, Math.max(0, outerRadius - 0.5));
-      ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.12)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
     }
 
-    // 3. Guides (behind rulers)
+    // 3. Scene-scoped guides — above body/dots, below scene fill/border
     const activeDrag = dragRef.current;
     const activeGuideId =
       (activeDrag.kind === 'creating-guide' || activeDrag.kind === 'moving-guide')
@@ -261,13 +234,68 @@ export function DemoApp() {
         ? activeDrag.xGuideId
         : hoveredGuideIdRef.current;
     const pendingDeleteGuideId = pendingDeleteRef.current ? activeGuideId : null;
+    const creatingIds = new Set<string>();
+    if (activeDrag.kind === 'creating-guide') creatingIds.add(activeDrag.guideId);
+    if (activeDrag.kind === 'creating-cross-guide') {
+      creatingIds.add(activeDrag.xGuideId);
+      creatingIds.add(activeDrag.yGuideId);
+    }
     if (rulerStateRef.current.guidesVisible) {
-      drawGuides(ctx, cssW, cssH, guidesRef.current, vp, activeGuideId, scenes, pendingDeleteGuideId);
+      const sceneGuides = guidesRef.current.filter(g => g.scope.kind === 'scene');
+      drawGuides(ctx, cssW, cssH, sceneGuides, vp, activeGuideId, scenes, pendingDeleteGuideId, creatingIds);
+    }
+
+    // 3b. Scene frames — outer fill (body hole via evenodd) + name + border, above guides
+    ctx.lineWidth = 1;
+    for (const scene of scenes) {
+      const sx = worldToScreenX(scene.bbox.x, vp);
+      const sy = worldToScreenY(scene.bbox.y, vp);
+      const sw = scene.bbox.width  * zoom;
+      const sh = scene.bbox.height * zoom;
+      if (sx + sw < RULER_SIZE || sy + sh < RULER_SIZE || sx > cssW || sy > cssH) continue;
+
+      const isSelected  = scene.id === selectedId;
+      const outerRadius = Math.min(16 * zoom, sw / 2, sh / 2);
+      const pad         = 12 * zoom;
+      const NAME_FONT   = 12;
+      const NAME_GAP    = 12;
+      const bodyX = sx + pad;
+      const bodyY = sy + pad + 4 + NAME_FONT + NAME_GAP;
+      const bodyW = sw - 2 * pad;
+      const bodyH = sh - pad - 4 - NAME_FONT - NAME_GAP - pad;
+
+      // Gray fill with body punched out — guides show through the body, header covers them
+      ctx.beginPath();
+      ctx.roundRect(sx, sy, sw, sh, outerRadius);
+      if (bodyW > 20 && bodyH > 20) ctx.rect(bodyX, bodyY, bodyW, bodyH);
+      ctx.fillStyle = '#131316';
+      ctx.fill('evenodd');
+
+      // Name
+      if (sw > 2 * pad + 20 && sh > 2 * pad + NAME_FONT + NAME_GAP + 20) {
+        ctx.fillStyle    = isSelected ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
+        ctx.font         = `${NAME_FONT}px system-ui, -apple-system, sans-serif`;
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(scene.id, sx + pad, sy + pad + 4);
+      }
+
+      // Border stroke
+      ctx.beginPath();
+      ctx.roundRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1, Math.max(0, outerRadius - 0.5));
+      ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.12)';
+      ctx.stroke();
+    }
+
+    // 3c. Global guides — on top of all scene layers
+    if (rulerStateRef.current.guidesVisible) {
+      const globalGuides = guidesRef.current.filter(g => g.scope.kind === 'global');
+      drawGuides(ctx, cssW, cssH, globalGuides, vp, activeGuideId, scenes, pendingDeleteGuideId, creatingIds);
     }
 
     // 4. Rulers
     if (rulersVisibleRef.current) {
-      const { isAnimating } = drawRulers(ctx, cssW, cssH, rulerStateRef.current, vp, performance.now());
+      const { isAnimating } = drawRulers(ctx, cssW, cssH, rulerStateRef.current, vp, performance.now(), minorTicksRef.current, showNumbersRef.current);
       if (isAnimating) {
         scheduleRender();
       } else {
@@ -384,9 +412,26 @@ export function DemoApp() {
   const onContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.min(e.clientX - rect.left, rect.width  - 218);
-    const y = Math.min(e.clientY - rect.top,  rect.height -  88);
-    setCtxMenu({ open: true, x: Math.max(4, x), y: Math.max(4, y) });
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const cx = Math.max(4, Math.min(sx, rect.width  - 218));
+    const cy = Math.max(4, Math.min(sy, rect.height -  90));
+
+    if (!rulersVisibleRef.current) {
+      // When rulers are hidden, only the 16px edge strip triggers "Show rulers"
+      if (sx <= 16 || sy <= 16) {
+        setCtxMenu({ open: true, x: cx, y: cy, kind: 'main' });
+      }
+      return;
+    }
+
+    // Rulers visible — check which zone was clicked
+    const hit = hitTest(sx, sy, guidesRef.current, vpRef.current, rulerStateRef.current.guidesVisible, scenesRef.current);
+    if (hit.kind === 'left-ruler') {
+      setCtxMenu({ open: true, x: cx, y: cy, kind: 'left-ruler' });
+    } else {
+      setCtxMenu({ open: true, x: cx, y: cy, kind: 'main' });
+    }
   }, []);
 
   // ── Drag-and-drop images ─────────────────────────────────────────────────────
@@ -766,6 +811,30 @@ export function DemoApp() {
           onContextMenu={onContextMenu}
         />
 
+        {/* Ruler display toggles */}
+        <div style={{ position: 'absolute', bottom: 16, right: 16, display: 'flex', gap: '6px', zIndex: 10 }}>
+          {([
+            { label: 'Numbers',     ref: showNumbersRef, state: showNumbers, set: setShowNumbers },
+            { label: 'Minor ticks', ref: minorTicksRef,  state: minorTicks,  set: setMinorTicks  },
+          ] as const).map(({ label, ref, state, set }) => (
+            <button
+              key={label}
+              onClick={() => { ref.current = !ref.current; set(ref.current); scheduleRender(); }}
+              style={{
+                padding: '5px 11px', borderRadius: '6px',
+                background: 'rgba(38, 38, 44, 0.88)',
+                border: `1px solid ${state ? 'rgba(255,255,255,0.2)' : '#40404A'}`,
+                backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+                color: state ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
+                fontSize: '12px', fontFamily: 'system-ui, -apple-system, sans-serif',
+                cursor: 'pointer', userSelect: 'none',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Context menu */}
         {ctxMenu.open && (
           <>
@@ -793,27 +862,53 @@ export function DemoApp() {
               }}
               onMouseDown={e => e.stopPropagation()}
             >
-              <MenuItem
-                label={rulersVisibleRef.current ? 'Hide rulers' : 'Show rulers'}
-                shortcut="⌘R"
-                onClick={() => {
-                  rulersVisibleRef.current = !rulersVisibleRef.current;
-                  rulerStateRef.current = { ...rulerStateRef.current, guidesVisible: rulersVisibleRef.current };
-                  setCtxMenu(m => ({ ...m, open: false }));
-                  scheduleRender();
-                }}
-              />
-              {rulersVisibleRef.current && (
+              {ctxMenu.kind === 'left-ruler' ? (
                 <>
-                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />
                   <MenuItem
-                    label="Remove all horizontal guides"
+                    label="Hide rulers"
+                    shortcut="⌘R"
                     onClick={() => {
-                      guidesRef.current = guidesRef.current.filter(g => g.axis !== 'y');
+                      rulersVisibleRef.current = false;
+                      rulerStateRef.current = { ...rulerStateRef.current, guidesVisible: false };
                       setCtxMenu(m => ({ ...m, open: false }));
                       scheduleRender();
                     }}
                   />
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />
+                  <MenuItem
+                    label="Remove all vertical guides"
+                    onClick={() => {
+                      guidesRef.current = guidesRef.current.filter(g => g.axis !== 'x');
+                      setCtxMenu(m => ({ ...m, open: false }));
+                      scheduleRender();
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <MenuItem
+                    label={rulersVisibleRef.current ? 'Hide rulers' : 'Show rulers'}
+                    shortcut="⌘R"
+                    onClick={() => {
+                      rulersVisibleRef.current = !rulersVisibleRef.current;
+                      rulerStateRef.current = { ...rulerStateRef.current, guidesVisible: rulersVisibleRef.current };
+                      setCtxMenu(m => ({ ...m, open: false }));
+                      scheduleRender();
+                    }}
+                  />
+                  {rulersVisibleRef.current && (
+                    <>
+                      <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />
+                      <MenuItem
+                        label="Remove all horizontal guides"
+                        onClick={() => {
+                          guidesRef.current = guidesRef.current.filter(g => g.axis !== 'y');
+                          setCtxMenu(m => ({ ...m, open: false }));
+                          scheduleRender();
+                        }}
+                      />
+                    </>
+                  )}
                 </>
               )}
             </div>
