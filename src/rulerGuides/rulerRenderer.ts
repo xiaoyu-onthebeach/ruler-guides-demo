@@ -20,15 +20,10 @@ const MINOR_TICKS_PER_MAJOR = 5;
 const RULER_BG = '#131316';
 const TICK_MAJOR = '#50505D';
 const TICK_MINOR = 'rgba(80, 80, 93, 0.8)';
-const LABEL_COLOR = 'rgba(255, 255, 255, 0.5)';
 const BORDER_COLOR = 'rgba(255, 255, 255, 0.08)';
 
 function crisp(n: number): number {
   return Math.round(n) + 0.5;
-}
-
-function formatLabel(value: number): string {
-  return String(Math.round(value));
 }
 
 // ── Internal: backgrounds ────────────────────────────────────────────────────
@@ -85,12 +80,6 @@ function drawTopRulerTicks(
     ctx.lineTo(sx, RULER_SIZE);
     ctx.stroke();
 
-    const label = formatLabel(displayValue(wx, 'x', rulerState));
-    ctx.fillStyle = LABEL_COLOR;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(label, sx, 3);
-
     ctx.strokeStyle = TICK_MINOR;
     for (let i = 1; i < MINOR_TICKS_PER_MAJOR; i++) {
       const msx = crisp(worldToScreenX(wx + i * minorStep, viewport));
@@ -128,16 +117,6 @@ function drawLeftRulerTicks(
     ctx.moveTo(RULER_SIZE - MAJOR_TICK_LENGTH, sy);
     ctx.lineTo(RULER_SIZE, sy);
     ctx.stroke();
-
-    const label = formatLabel(displayValue(wy, 'y', rulerState));
-    ctx.fillStyle = LABEL_COLOR;
-    ctx.save();
-    ctx.translate((RULER_SIZE - MAJOR_TICK_LENGTH) / 2, sy);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
 
     ctx.strokeStyle = TICK_MINOR;
     for (let i = 1; i < MINOR_TICKS_PER_MAJOR; i++) {

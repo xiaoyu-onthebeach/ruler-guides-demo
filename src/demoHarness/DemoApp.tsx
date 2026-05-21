@@ -43,7 +43,13 @@ type ImageDrag = {
   startZoom: number;
 };
 
-type ActiveDrag = { kind: 'none' } | PanDrag | SceneDrag | GuideDragState | ImageDrag;
+type CrossGuideDrag = {
+  kind: 'creating-cross-guide';
+  xGuideId: string;
+  yGuideId: string;
+};
+
+type ActiveDrag = { kind: 'none' } | PanDrag | SceneDrag | GuideDragState | ImageDrag | CrossGuideDrag;
 
 interface ImageLayer {
   id: string;
@@ -251,6 +257,8 @@ export function DemoApp() {
     const activeGuideId =
       (activeDrag.kind === 'creating-guide' || activeDrag.kind === 'moving-guide')
         ? activeDrag.guideId
+        : activeDrag.kind === 'creating-cross-guide'
+        ? activeDrag.xGuideId
         : hoveredGuideIdRef.current;
     const pendingDeleteGuideId = pendingDeleteRef.current ? activeGuideId : null;
     if (rulerStateRef.current.guidesVisible) {
@@ -509,7 +517,19 @@ export function DemoApp() {
       }
       e.currentTarget.style.cursor = 'grabbing';
     }
-    // corner: no drag action
+    if (hit.kind === 'corner') {
+      const selId = selectedSceneIdRef.current;
+      const scene = selId ? scenes.find(s => s.id === selId) : undefined;
+      const scope  = scene ? { kind: 'scene' as const, sceneId: scene.id } : { kind: 'global' as const };
+      const wxPos  = guideWorldPos(sx, sy, 'x', vp);
+      const wyPos  = guideWorldPos(sx, sy, 'y', vp);
+      const gX = createGuide('x', scene ? wxPos - scene.bbox.x : wxPos, scope);
+      const gY = createGuide('y', scene ? wyPos - scene.bbox.y : wyPos, scope);
+      guidesRef.current = [...guidesRef.current, gX, gY];
+      dragRef.current   = { kind: 'creating-cross-guide', xGuideId: gX.id, yGuideId: gY.id };
+      e.currentTarget.style.cursor = 'crosshair';
+      scheduleRender();
+    }
   }, [scheduleRender]);
 
   const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -573,6 +593,27 @@ export function DemoApp() {
       return;
     }
 
+    if (drag.kind === 'creating-cross-guide') {
+      const wx = guideWorldPos(sx, sy, 'x', vp);
+      const wy = guideWorldPos(sx, sy, 'y', vp);
+      guidesRef.current = guidesRef.current.map(g => {
+        if (g.id === drag.xGuideId) {
+          const scope = g.scope;
+          const sc = scope.kind === 'scene' ? scenesRef.current.find(s => s.id === scope.sceneId) : undefined;
+          return { ...g, position: sc ? wx - sc.bbox.x : wx };
+        }
+        if (g.id === drag.yGuideId) {
+          const scope = g.scope;
+          const sc = scope.kind === 'scene' ? scenesRef.current.find(s => s.id === scope.sceneId) : undefined;
+          return { ...g, position: sc ? wy - sc.bbox.y : wy };
+        }
+        return g;
+      });
+      e.currentTarget.style.cursor = 'crosshair';
+      scheduleRender();
+      return;
+    }
+
     if (drag.kind === 'moving-image') {
       const dx = (e.clientX - drag.startClientX) / drag.startZoom;
       const dy = (e.clientY - drag.startClientY) / drag.startZoom;
@@ -621,6 +662,8 @@ export function DemoApp() {
 
     if (guide) {
       e.currentTarget.style.cursor = guideCursor(guide.axis);
+    } else if (sx < RULER_SIZE && sy < RULER_SIZE) {
+      e.currentTarget.style.cursor = 'crosshair';
     } else {
       const wx = screenToWorldX(sx, vp);
       const wy = screenToWorldY(sy, vp);
@@ -658,6 +701,15 @@ export function DemoApp() {
         guidesRef.current = deleteGuide(guidesRef.current, drag.guideId);
         scheduleRender();
       }
+      return;
+    }
+
+    if (drag.kind === 'creating-cross-guide') {
+      let guides = guidesRef.current;
+      if (sx < RULER_SIZE) guides = deleteGuide(guides, drag.xGuideId);
+      if (sy < RULER_SIZE) guides = deleteGuide(guides, drag.yGuideId);
+      guidesRef.current = guides;
+      scheduleRender();
       return;
     }
 
