@@ -71,7 +71,7 @@ function drawTopRulerTicks(
   const firstMajor = Math.ceil((worldLeft - origin.x) / step) * step + origin.x;
   const minorStep = step / MINOR_TICKS_PER_MAJOR;
 
-  ctx.font = '10px monospace';
+  ctx.font = "10px 'Saans', system-ui, sans-serif";
 
   for (let wx = firstMajor; wx <= worldRight + step; wx += step) {
     const sx = crisp(worldToScreenX(wx, viewport));
@@ -122,7 +122,7 @@ function drawLeftRulerTicks(
   const firstMajor = Math.ceil((worldTop - origin.y) / step) * step + origin.y;
   const minorStep = step / MINOR_TICKS_PER_MAJOR;
 
-  ctx.font = '10px monospace';
+  ctx.font = "10px 'Saans', system-ui, sans-serif";
 
   for (let wy = firstMajor; wy <= worldBottom + step; wy += step) {
     const sy = crisp(worldToScreenY(wy, viewport));
@@ -277,7 +277,7 @@ export function drawSceneRulerHighlight(
   const LABEL_X   = (RULER_SIZE - MAJOR_TICK_LENGTH) / 2; // 8 — same x-center as tick labels
 
   ctx.save();
-  ctx.font = '10px monospace';
+  ctx.font = "10px 'Saans', system-ui, sans-serif";
 
   // ── Top ruler: horizontal span ───────────────────────────────────────────────
   const sxLeft  = worldToScreenX(scene.bbox.x, viewport);
@@ -293,10 +293,10 @@ export function drawSceneRulerHighlight(
     ctx.textBaseline = 'top';
 
     ctx.textAlign = 'right';
-    ctx.fillText(String(Math.round(displayValue(scene.bbox.x, 'x', rulerState))), visLeft - 2, 3);
+    ctx.fillText(String(Math.round(displayValue(scene.bbox.x, 'x', rulerState))), visLeft - 4, 3);
 
     ctx.textAlign = 'left';
-    ctx.fillText(String(Math.round(displayValue(scene.bbox.x + scene.bbox.width, 'x', rulerState))), visRight + 2, 3);
+    ctx.fillText(String(Math.round(displayValue(scene.bbox.x + scene.bbox.width, 'x', rulerState))), visRight + 4, 3);
   }
 
   // ── Left ruler: vertical span ────────────────────────────────────────────────

@@ -74,7 +74,7 @@ export function drawGuideRulerLabels(
   if (activeIds.length === 0) return;
 
   ctx.save();
-  ctx.font = '10px monospace';
+  ctx.font = "10px 'Saans', system-ui, sans-serif";
 
   for (const activeId of activeIds) {
     const guide = guides.find(g => g.id === activeId);
