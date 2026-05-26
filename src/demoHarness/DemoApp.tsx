@@ -1,4 +1,9 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { CanvasHeader } from './CanvasHeader';
+import { LeftPanel } from './LeftPanel';
+import { RightPanel } from './RightPanel';
+import { TaskBar } from './TaskBar';
+import { ViewControls } from './ViewControls';
 import { drawRulers, drawSceneRulerHighlight } from '../rulerGuides/rulerRenderer';
 import { drawGuides, drawGuideRulerLabels } from '../rulerGuides/guideRenderer';
 import { RULER_SIZE, screenToWorldX, screenToWorldY, worldToScreenX, worldToScreenY } from '../rulerGuides/coordinateSystem';
@@ -105,7 +110,7 @@ export function DemoApp() {
   const vpRef         = useRef<Viewport>({ zoom: 1, panX: -60, panY: -60 });
   const rulerStateRef = useRef<RulerState>({
     origin: { kind: 'default' },
-    guidesVisible: true,
+    guidesVisible: false,
     currentStep: 100,
     previousStep: null,
     crossfadeStartedAt: null,
@@ -122,13 +127,23 @@ export function DemoApp() {
   const pendingDeleteRef    = useRef<boolean>(false);
   const rafRef              = useRef<number | null>(null);
   const genSettingsPanelRef = useRef<HTMLDivElement>(null);
-  const rulersVisibleRef    = useRef<boolean>(true);
+  const resumeBtnRef        = useRef<HTMLDivElement>(null);
+  const closeBtnRef         = useRef<HTMLDivElement>(null);
+  const hoveredSceneIdRef   = useRef<string | null>(null);
+  const editingSceneIdRef   = useRef<string | null>(null);
+  const rulersVisibleRef    = useRef<boolean>(false);
   const minorTicksRef       = useRef<boolean>(true);
   const showNumbersRef      = useRef<boolean>(true);
+  const taskBarWrapperRef   = useRef<HTMLDivElement>(null);
+  const selectedGuideIdRef  = useRef<string | null>(null);
+  const guideMouseDownRef   = useRef<{ x: number; y: number } | null>(null);
+  const selectedImageIdRef  = useRef<string | null>(null);
 
-  const [ctxMenu, setCtxMenu]       = useState<{ open: boolean; x: number; y: number; kind: 'main' | 'left-ruler' }>({ open: false, x: 0, y: 0, kind: 'main' });
-  const [minorTicks, setMinorTicks] = useState(true);
+  const [ctxMenu, setCtxMenu]         = useState<{ open: boolean; x: number; y: number; kind: 'main' | 'left-ruler' }>({ open: false, x: 0, y: 0, kind: 'main' });
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const [rulersVisible, setRulersVisible] = useState(false);
   const [showNumbers, setShowNumbers] = useState(true);
+  const [minorTicks, setMinorTicks]   = useState(true);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -219,6 +234,11 @@ export function DemoApp() {
             const imgSx = worldToScreenX(scene.bbox.x + img.x, vp);
             const imgSy = worldToScreenY(scene.bbox.y + img.y, vp);
             ctx.drawImage(img.bitmap, imgSx, imgSy, img.width * zoom, img.height * zoom);
+            if (img.id === selectedImageIdRef.current) {
+              ctx.strokeStyle = '#4570FF';
+              ctx.lineWidth = 2;
+              ctx.strokeRect(imgSx, imgSy, img.width * zoom, img.height * zoom);
+            }
           }
           ctx.restore();
         }
@@ -232,7 +252,7 @@ export function DemoApp() {
         ? activeDrag.guideId
         : activeDrag.kind === 'creating-cross-guide'
         ? activeDrag.xGuideId
-        : hoveredGuideIdRef.current;
+        : hoveredGuideIdRef.current ?? selectedGuideIdRef.current;
     const pendingDeleteGuideId = pendingDeleteRef.current ? activeGuideId : null;
     const creatingIds = new Set<string>();
     if (activeDrag.kind === 'creating-guide') creatingIds.add(activeDrag.guideId);
@@ -255,6 +275,7 @@ export function DemoApp() {
       if (sx + sw < RULER_SIZE || sy + sh < RULER_SIZE || sx > cssW || sy > cssH) continue;
 
       const isSelected  = scene.id === selectedId;
+      const isEditing   = scene.id === editingSceneIdRef.current;
       const outerRadius = Math.min(16 * zoom, sw / 2, sh / 2);
       const pad         = 12 * zoom;
       const NAME_FONT   = 12;
@@ -273,7 +294,7 @@ export function DemoApp() {
 
       // Name
       if (sw > 2 * pad + 20 && sh > 2 * pad + NAME_FONT + NAME_GAP + 20) {
-        ctx.fillStyle    = isSelected ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
+        ctx.fillStyle    = (isSelected || isEditing) ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
         ctx.font         = `${NAME_FONT}px system-ui, -apple-system, sans-serif`;
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'top';
@@ -283,7 +304,7 @@ export function DemoApp() {
       // Border stroke
       ctx.beginPath();
       ctx.roundRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1, Math.max(0, outerRadius - 0.5));
-      ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.12)';
+      ctx.strokeStyle = (isSelected || isEditing) ? '#ffffff' : 'rgba(255, 255, 255, 0.12)';
       ctx.stroke();
     }
 
@@ -293,27 +314,55 @@ export function DemoApp() {
       drawGuides(ctx, cssW, cssH, globalGuides, vp, activeGuideId, scenes, pendingDeleteGuideId, creatingIds);
     }
 
-    // 4. Rulers
+    // 4a. Ruler highlight — image selection takes priority over scene selection
+    const selectedScene = selectedId ? scenes.find(s => s.id === selectedId) ?? null : null;
+    const selectedImage = selectedImageIdRef.current
+      ? imageLayersRef.current.find(img => img.id === selectedImageIdRef.current) ?? null
+      : null;
+
+    // 4. Rulers — suppress the regular "0" label when a highlight band is active
+    // (the highlight's left-edge label shows "0" instead)
     if (rulersVisibleRef.current) {
-      const { isAnimating } = drawRulers(ctx, cssW, cssH, rulerStateRef.current, vp, performance.now(), minorTicksRef.current, showNumbersRef.current);
+      const hasHighlight = selectedImage !== null || selectedScene !== null;
+      const { isAnimating } = drawRulers(ctx, cssW, cssH, rulerStateRef.current, vp, performance.now(), minorTicksRef.current, showNumbersRef.current, hasHighlight);
       if (isAnimating) {
         scheduleRender();
       } else {
         rulerStateRef.current = clearCrossfade(rulerStateRef.current);
       }
     }
-
-    // 4a. Scene ruler highlight + generation panel position
-    const selectedScene = selectedId ? scenes.find(s => s.id === selectedId) ?? null : null;
-    if (selectedScene && rulersVisibleRef.current) {
-      drawSceneRulerHighlight(ctx, cssW, cssH, selectedScene, vp, rulerStateRef.current);
+    if (rulersVisibleRef.current) {
+      if (selectedImage) {
+        const parentScene = scenes.find(s => s.id === selectedImage.sceneId);
+        if (parentScene) {
+          const imgFakeScene = {
+            id: selectedImage.id,
+            bbox: {
+              x: parentScene.bbox.x + selectedImage.x,
+              y: parentScene.bbox.y + selectedImage.y,
+              width: selectedImage.width,
+              height: selectedImage.height,
+            },
+          };
+          drawSceneRulerHighlight(ctx, cssW, cssH, imgFakeScene, vp, rulerStateRef.current);
+        }
+      } else if (selectedScene) {
+        drawSceneRulerHighlight(ctx, cssW, cssH, selectedScene, vp, rulerStateRef.current);
+      }
     }
+
+    const editingScene  = editingSceneIdRef.current
+      ? scenes.find(s => s.id === editingSceneIdRef.current) ?? null : null;
+    const hoveredScene  = hoveredSceneIdRef.current
+      ? scenes.find(s => s.id === hoveredSceneIdRef.current) ?? null : null;
+
+    // Gen panel — only in editing state
     const genPanel = genSettingsPanelRef.current;
     if (genPanel) {
-      if (selectedScene) {
-        const psx = worldToScreenX(selectedScene.bbox.x, vp);
-        const psy = worldToScreenY(selectedScene.bbox.y, vp);
-        const psw = selectedScene.bbox.width * zoom;
+      if (editingScene) {
+        const psx = worldToScreenX(editingScene.bbox.x, vp);
+        const psy = worldToScreenY(editingScene.bbox.y, vp);
+        const psw = editingScene.bbox.width * zoom;
         genPanel.style.left    = `${psx + psw + 16}px`;
         genPanel.style.top     = `${psy}px`;
         genPanel.style.display = 'flex';
@@ -322,9 +371,62 @@ export function DemoApp() {
       }
     }
 
+    // Helper: position a 32×32 button 24px inside the top-right corner of a scene,
+    // clamped so it never leaves the canvas content area.
+    const BTN = 32;
+    const PAD = 24;
+    function btnPos(scene: typeof scenes[0]) {
+      const rx = worldToScreenX(scene.bbox.x + scene.bbox.width, vp);
+      const ty = worldToScreenY(scene.bbox.y, vp);
+      const lx = worldToScreenX(scene.bbox.x, vp);
+      const bx = Math.min(rx - PAD - BTN, cssW - BTN - 4);
+      const by = Math.max(ty + PAD,        RULER_SIZE + 4);
+      // Also keep within the scene's own horizontal bounds
+      const bxClamped = Math.max(bx, lx + PAD);
+      return { left: bxClamped, top: by };
+    }
+
+    // Resume button — shown when hovering a scene that is NOT in editing mode
+    const resumeBtn = resumeBtnRef.current;
+    if (resumeBtn) {
+      const showResume = hoveredScene && hoveredScene.id !== editingSceneIdRef.current;
+      if (showResume) {
+        const { left, top } = btnPos(hoveredScene);
+        resumeBtn.style.left    = `${left}px`;
+        resumeBtn.style.top     = `${top}px`;
+        resumeBtn.style.display = 'flex';
+      } else {
+        resumeBtn.style.display = 'none';
+      }
+    }
+
+    // Close button — shown when a scene is in editing mode
+    const closeBtn = closeBtnRef.current;
+    if (closeBtn) {
+      if (editingScene) {
+        const { left, top } = btnPos(editingScene);
+        closeBtn.style.left    = `${left}px`;
+        closeBtn.style.top     = `${top}px`;
+        closeBtn.style.display = 'flex';
+      } else {
+        closeBtn.style.display = 'none';
+      }
+    }
+
+    // TaskBar — only visible when a scene is in editing mode
+    const taskBarWrapper = taskBarWrapperRef.current;
+    if (taskBarWrapper) {
+      taskBarWrapper.style.display = editingSceneIdRef.current ? 'block' : 'none';
+    }
+
     // 4b. Guide ruler labels — suppressed when guide is in delete zone or rulers hidden
     if (rulersVisibleRef.current) {
-      drawGuideRulerLabels(ctx, cssW, cssH, guidesRef.current, pendingDeleteGuideId ? null : activeGuideId, vp, rulerStateRef.current, scenes);
+      const rulerLabelIds = pendingDeleteGuideId
+        ? []
+        : activeDrag.kind === 'creating-cross-guide'
+          ? [activeDrag.xGuideId, activeDrag.yGuideId]
+          : activeGuideId ? [activeGuideId] : [];
+      drawGuideRulerLabels(ctx, cssW, cssH, guidesRef.current, rulerLabelIds, vp, rulerStateRef.current, scenes);
     }
 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -367,11 +469,12 @@ export function DemoApp() {
         panY: wy - (cy - RULER_SIZE) / newZoom,
       };
       rulerStateRef.current = updateStep(rulerStateRef.current, newZoom);
+      setZoomPercent(Math.round(newZoom * 100));
       scheduleRender();
     };
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, [scheduleRender]);
+  }, [scheduleRender, setZoomPercent]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
 
@@ -385,6 +488,7 @@ export function DemoApp() {
       onToggleRulers: () => {
         rulersVisibleRef.current = !rulersVisibleRef.current;
         rulerStateRef.current = { ...rulerStateRef.current, guidesVisible: rulersVisibleRef.current };
+        setRulersVisible(rulersVisibleRef.current);
         scheduleRender();
       },
     });
@@ -393,10 +497,17 @@ export function DemoApp() {
   useEffect(() => {
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setCtxMenu(m => ({ ...m, open: false }));
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedGuideIdRef.current) {
+          guidesRef.current = deleteGuide(guidesRef.current, selectedGuideIdRef.current);
+          selectedGuideIdRef.current = null;
+          scheduleRender();
+        }
+      }
     };
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
-  }, []);
+  }, [scheduleRender]);
 
   // ── Scene selection ──────────────────────────────────────────────────────────
 
@@ -404,6 +515,34 @@ export function DemoApp() {
     if (sceneId === selectedSceneIdRef.current) return;
     selectedSceneIdRef.current = sceneId;
     rulerStateRef.current = originFromSceneId(rulerStateRef.current, sceneId, scenesRef.current);
+    scheduleRender();
+  }, [scheduleRender]);
+
+  // ── ViewControls callbacks ───────────────────────────────────────────────────
+
+  const onFitToScreen = useCallback(() => {
+    vpRef.current = { zoom: 1, panX: -60, panY: -60 };
+    rulerStateRef.current = updateStep(rulerStateRef.current, 1);
+    setZoomPercent(100);
+    scheduleRender();
+  }, [scheduleRender]);
+
+  const onToggleRulersFromControl = useCallback(() => {
+    rulersVisibleRef.current = !rulersVisibleRef.current;
+    rulerStateRef.current = { ...rulerStateRef.current, guidesVisible: rulersVisibleRef.current };
+    setRulersVisible(rulersVisibleRef.current);
+    scheduleRender();
+  }, [scheduleRender]);
+
+  const onToggleNumbers = useCallback(() => {
+    showNumbersRef.current = !showNumbersRef.current;
+    setShowNumbers(showNumbersRef.current);
+    scheduleRender();
+  }, [scheduleRender]);
+
+  const onToggleMinorTicks = useCallback(() => {
+    minorTicksRef.current = !minorTicksRef.current;
+    setMinorTicks(minorTicksRef.current);
     scheduleRender();
   }, [scheduleRender]);
 
@@ -490,6 +629,8 @@ export function DemoApp() {
     const hit = hitTest(sx, sy, guidesRef.current, vp, rs.guidesVisible, scenes);
 
     if (hit.kind === 'top-ruler') {
+      selectedGuideIdRef.current = null;
+      selectedImageIdRef.current = null;
       const axis: Axis = 'y';
       const worldPos = guideWorldPos(sx, sy, axis, vp);
       const selId    = selectedSceneIdRef.current;
@@ -505,6 +646,8 @@ export function DemoApp() {
     }
 
     if (hit.kind === 'left-ruler') {
+      selectedGuideIdRef.current = null;
+      selectedImageIdRef.current = null;
       const axis: Axis = 'x';
       const worldPos = guideWorldPos(sx, sy, axis, vp);
       const selId    = selectedSceneIdRef.current;
@@ -520,16 +663,20 @@ export function DemoApp() {
     }
 
     if (hit.kind === 'guide') {
+      guideMouseDownRef.current = { x: e.clientX, y: e.clientY };
+      selectedImageIdRef.current = null;
       dragRef.current = { kind: 'moving-guide', guideId: hit.guideId, axis: hit.axis };
       e.currentTarget.style.cursor = guideCursor(hit.axis);
       return;
     }
 
     if (hit.kind === 'canvas') {
+      selectedGuideIdRef.current = null;
       const wx = screenToWorldX(sx, vp);
       const wy = screenToWorldY(sy, vp);
       const overImage = findImageAt(wx, wy, imageLayersRef.current, scenes);
-      if (overImage) {
+      // Images are only interactive when their parent scene is in editing state
+      if (overImage && editingSceneIdRef.current === overImage.sceneId) {
         dragRef.current = {
           kind: 'moving-image',
           imageId: overImage.id,
@@ -540,6 +687,7 @@ export function DemoApp() {
         e.currentTarget.style.cursor = 'grabbing';
         return;
       }
+      selectedImageIdRef.current = null;
       const overScene = scenes.find(s =>
         wx >= s.bbox.x && wx <= s.bbox.x + s.bbox.width &&
         wy >= s.bbox.y && wy <= s.bbox.y + s.bbox.height,
@@ -563,6 +711,8 @@ export function DemoApp() {
       e.currentTarget.style.cursor = 'grabbing';
     }
     if (hit.kind === 'corner') {
+      selectedGuideIdRef.current = null;
+      selectedImageIdRef.current = null;
       const selId = selectedSceneIdRef.current;
       const scene = selId ? scenes.find(s => s.id === selId) : undefined;
       const scope  = scene ? { kind: 'scene' as const, sceneId: scene.id } : { kind: 'global' as const };
@@ -713,12 +863,25 @@ export function DemoApp() {
       const wx = screenToWorldX(sx, vp);
       const wy = screenToWorldY(sy, vp);
       const inCanvas = sx >= RULER_SIZE && sy >= RULER_SIZE;
-      const overImage = inCanvas && findImageAt(wx, wy, imageLayersRef.current, scenesRef.current) !== null;
-      const overScene = !overImage && inCanvas && scenesRef.current.some(s =>
-        wx >= s.bbox.x && wx <= s.bbox.x + s.bbox.width &&
-        wy >= s.bbox.y && wy <= s.bbox.y + s.bbox.height,
-      );
-      e.currentTarget.style.cursor = (overImage || overScene) ? 'grab' : 'default';
+      const imageHit = inCanvas && editingSceneIdRef.current !== null
+        ? findImageAt(wx, wy, imageLayersRef.current, scenesRef.current)
+        : null;
+      const overImage = imageHit !== null && imageHit.sceneId === editingSceneIdRef.current;
+      const overSceneObj = !overImage && inCanvas
+        ? (scenesRef.current.find(s =>
+            wx >= s.bbox.x && wx <= s.bbox.x + s.bbox.width &&
+            wy >= s.bbox.y && wy <= s.bbox.y + s.bbox.height,
+          ) ?? null)
+        : null;
+
+      // Track hovered scene for the resume button overlay
+      const newHoveredSceneId = overSceneObj?.id ?? null;
+      if (newHoveredSceneId !== hoveredSceneIdRef.current) {
+        hoveredSceneIdRef.current = newHoveredSceneId;
+        scheduleRender();
+      }
+
+      e.currentTarget.style.cursor = (overImage || overSceneObj) ? 'grab' : 'default';
     }
   }, [scheduleRender]);
 
@@ -737,6 +900,8 @@ export function DemoApp() {
       pendingDeleteRef.current = false;
       if (shouldDelete) {
         guidesRef.current = deleteGuide(guidesRef.current, drag.guideId);
+        if (drag.guideId === selectedGuideIdRef.current) selectedGuideIdRef.current = null;
+        guideMouseDownRef.current = null;
         scheduleRender();
         return;
       }
@@ -744,6 +909,17 @@ export function DemoApp() {
       const hit = hitTest(sx, sy, guidesRef.current, vp, rs.guidesVisible, scenesRef.current);
       if (isDropOnSourceRuler(drag.axis, hit)) {
         guidesRef.current = deleteGuide(guidesRef.current, drag.guideId);
+        if (drag.guideId === selectedGuideIdRef.current) selectedGuideIdRef.current = null;
+        guideMouseDownRef.current = null;
+        scheduleRender();
+        return;
+      }
+      // Click (no significant movement) on an existing guide → select it
+      if (drag.kind === 'moving-guide') {
+        const down = guideMouseDownRef.current;
+        guideMouseDownRef.current = null;
+        const moved = down ? (Math.abs(e.clientX - down.x) > 3 || Math.abs(e.clientY - down.y) > 3) : true;
+        selectedGuideIdRef.current = moved ? null : drag.guideId;
         scheduleRender();
       }
       return;
@@ -758,7 +934,17 @@ export function DemoApp() {
       return;
     }
 
+    if (drag.kind === 'moving-image') {
+      const moved =
+        Math.abs(e.clientX - drag.startClientX) > 4 ||
+        Math.abs(e.clientY - drag.startClientY) > 4;
+      selectedImageIdRef.current = moved ? null : drag.imageId;
+      scheduleRender();
+      return;
+    }
+
     if (drag.kind === 'moving-scene') {
+      selectedImageIdRef.current = null;
       const moved =
         Math.abs(e.clientX - drag.startClientX) > 4 ||
         Math.abs(e.clientY - drag.startClientY) > 4;
@@ -783,7 +969,7 @@ export function DemoApp() {
     }
   }, [scheduleRender, setSceneSelection]);
 
-  const onMouseLeave = useCallback(() => {
+  const onMouseLeave = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
     // If a guide drag exits the viewport while in delete zone, commit the deletion
     if ((drag.kind === 'creating-guide' || drag.kind === 'moving-guide') && pendingDeleteRef.current) {
@@ -792,13 +978,22 @@ export function DemoApp() {
     pendingDeleteRef.current  = false;
     dragRef.current           = { kind: 'none' };
     hoveredGuideIdRef.current = null;
+    // Don't clear hoveredScene when the mouse moves onto the resume button —
+    // otherwise the button hides before the click registers.
+    const toResumeBtn = resumeBtnRef.current?.contains(e.relatedTarget as Node);
+    if (!toResumeBtn) hoveredSceneIdRef.current = null;
     scheduleRender();
   }, [scheduleRender]);
 
   // ── UI ───────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ height: '100vh', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <CanvasHeader />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+        <LeftPanel />
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <div ref={taskBarWrapperRef} style={{ display: 'none' }}><TaskBar /></div>
         <canvas
           ref={canvasRef}
           style={{ width: '100%', height: '100%', display: 'block', cursor: 'default' }}
@@ -811,29 +1006,43 @@ export function DemoApp() {
           onContextMenu={onContextMenu}
         />
 
-        {/* Ruler display toggles */}
-        <div style={{ position: 'absolute', bottom: 16, right: 16, display: 'flex', gap: '6px', zIndex: 10 }}>
-          {([
-            { label: 'Numbers',     ref: showNumbersRef, state: showNumbers, set: setShowNumbers },
-            { label: 'Minor ticks', ref: minorTicksRef,  state: minorTicks,  set: setMinorTicks  },
-          ] as const).map(({ label, ref, state, set }) => (
-            <button
-              key={label}
-              onClick={() => { ref.current = !ref.current; set(ref.current); scheduleRender(); }}
-              style={{
-                padding: '5px 11px', borderRadius: '6px',
-                background: 'rgba(38, 38, 44, 0.88)',
-                border: `1px solid ${state ? 'rgba(255,255,255,0.2)' : '#40404A'}`,
-                backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-                color: state ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
-                fontSize: '12px', fontFamily: 'system-ui, -apple-system, sans-serif',
-                cursor: 'pointer', userSelect: 'none',
-              }}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Debug toggles — fixed above the ViewControls pill */}
+        <div style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 20,
+          display: 'flex', gap: 8, userSelect: 'none',
+        }}>
+          {(['numbers', 'minor ticks'] as const).map((label) => {
+            const active = label === 'numbers' ? showNumbers : minorTicks;
+            const toggle = label === 'numbers' ? onToggleNumbers : onToggleMinorTicks;
+            return (
+              <button
+                key={label}
+                onClick={toggle}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 20,
+                  border: `1px solid ${active ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+                  background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
+                  color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
+                  fontFamily: "'Saans', system-ui, sans-serif",
+                  fontSize: 12,
+                  fontWeight: 400,
+                  cursor: 'pointer',
+                  transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
+
+        <ViewControls
+          zoom={zoomPercent}
+          rulersVisible={rulersVisible}
+          onFitToScreen={onFitToScreen}
+          onToggleRulers={onToggleRulersFromControl}
+        />
 
         {/* Context menu */}
         {ctxMenu.open && (
@@ -992,6 +1201,72 @@ export function DemoApp() {
             }}>Generate</button>
           </div>
         </div>
+
+        {/* Resume button — hover over a non-editing scene */}
+        <div
+          ref={resumeBtnRef}
+          style={{
+            position: 'absolute',
+            width: 32, height: 32,
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '50%',
+            background: '#E8789A',
+            cursor: 'pointer',
+            zIndex: 20,
+            pointerEvents: 'auto',
+          }}
+          onMouseLeave={(e) => {
+            // Clear hovered scene only when leaving to somewhere other than the canvas
+            if (!canvasRef.current?.contains(e.relatedTarget as Node)) {
+              hoveredSceneIdRef.current = null;
+              scheduleRender();
+            }
+          }}
+          onClick={() => {
+            const sceneId = hoveredSceneIdRef.current;
+            if (!sceneId) return;
+            editingSceneIdRef.current = sceneId;
+            setSceneSelection(sceneId);
+            scheduleRender();
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17.25 3C19.3211 3 21 4.67893 21 6.75V17.25C21 19.3211 19.3211 21 17.25 21H6.75C4.67893 21 3 19.3211 3 17.25V6.75C3 4.67893 4.67893 3 6.75 3H17.25ZM6.75 4.5C5.50736 4.5 4.5 5.50736 4.5 6.75V17.25C4.5 18.4926 5.50736 19.5 6.75 19.5H17.25C18.4926 19.5 19.5 18.4926 19.5 17.25V6.75C19.5 5.50736 18.4926 4.5 17.25 4.5H6.75Z" fill="white"/>
+            <path d="M8.25 9.22171C8.25019 7.75956 9.80638 6.72744 11.1338 7.51858L15.7949 10.2959C17.0687 11.0552 17.0687 12.9448 15.7949 13.7041L11.1338 16.4815C9.80638 17.2726 8.25019 16.2405 8.25 14.7783V9.22171ZM9.75 14.7783C9.75017 15.1895 10.1342 15.3317 10.3662 15.1934L15.0264 12.4151C15.3242 12.2375 15.3242 11.7625 15.0264 11.585L10.3662 8.80667C10.1342 8.66837 9.75017 8.81053 9.75 9.22171V14.7783Z" fill="white"/>
+          </svg>
+        </div>
+
+        {/* Close button — shown when a scene is in editing mode */}
+        <div
+          ref={closeBtnRef}
+          style={{
+            position: 'absolute',
+            width: 32, height: 32,
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            zIndex: 20,
+            pointerEvents: 'auto',
+          }}
+          onClick={() => {
+            editingSceneIdRef.current = null;
+            selectedImageIdRef.current = null;
+            scheduleRender();
+          }}
+        >
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 0.5C24.5604 0.5 31.5 7.43959 31.5 16C31.5 24.5604 24.5604 31.5 16 31.5C7.43959 31.5 0.5 24.5604 0.5 16C0.5 7.43959 7.43959 0.5 16 0.5Z" fill="#26262C"/>
+            <path d="M16 0.5C24.5604 0.5 31.5 7.43959 31.5 16C31.5 24.5604 24.5604 31.5 16 31.5C7.43959 31.5 0.5 24.5604 0.5 16C0.5 7.43959 7.43959 0.5 16 0.5Z" stroke="#40404A"/>
+            <path fillRule="evenodd" clipRule="evenodd" d="M21.1401 9.827C21.1405 9.827 21.1409 9.82735 21.1416 9.82807L22.1718 10.8584C22.1725 10.859 22.1726 10.8593 22.1728 10.8599C22.1729 10.8602 22.1729 10.8606 22.1728 10.8609C22.1728 10.8615 22.1725 10.8618 22.1718 10.8625L17.0343 16L22.1718 21.1375C22.1725 21.1382 22.1726 21.1386 22.1728 21.1391C22.1729 21.1395 22.1729 21.14 22.1728 21.1404C22.1728 21.1407 22.1725 21.1411 22.1718 21.1418L21.1414 22.172C21.1409 22.1727 21.1405 22.1729 21.1401 22.1731C21.1397 22.1732 21.1393 22.1732 21.1389 22.1731C21.1384 22.1731 21.138 22.1727 21.1373 22.172L15.9998 17.0345L10.8623 22.172C10.8616 22.1727 10.8612 22.1729 10.8607 22.1731C10.8603 22.1732 10.8598 22.1732 10.8594 22.1731C10.8591 22.1731 10.8587 22.1727 10.858 22.172L9.82782 21.1416C9.82711 21.1411 9.82693 21.1407 9.82675 21.1404C9.82663 21.14 9.82663 21.1395 9.82675 21.1391C9.82675 21.1386 9.82711 21.1382 9.82782 21.1375L14.9653 16L9.82782 10.8625C9.82711 10.8618 9.82693 10.8615 9.82675 10.8609C9.82663 10.8605 9.82663 10.8601 9.82675 10.8597C9.82675 10.8593 9.82711 10.859 9.82782 10.8582L10.8582 9.82807C10.8587 9.82735 10.8591 9.82718 10.8594 9.827C10.8598 9.82687 10.8603 9.82687 10.8607 9.827C10.8612 9.827 10.8616 9.82735 10.8623 9.82807L15.9998 14.9656L21.1373 9.82807C21.138 9.82735 21.1384 9.82718 21.1389 9.827C21.1393 9.82687 21.1397 9.82687 21.1401 9.827Z" fill="white"/>
+          </svg>
+        </div>
+
+        </div>
+        <RightPanel />
+      </div>
     </div>
   );
 }

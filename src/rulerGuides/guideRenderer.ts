@@ -7,9 +7,8 @@ import {
   type ViewportCtx,
 } from './coordinateSystem';
 
-const GUIDE_COLOR        = '#FF4444';
-const GUIDE_ACTIVE_COLOR = '#CC1111';
 // #131316 = rgb(19,19,22) — must match rulerRenderer.ts
+
 const RULER_BG_SOLID     = 'rgba(19,19,22,1)';
 const RULER_BG_CLEAR     = 'rgba(19,19,22,0)';
 
@@ -28,6 +27,7 @@ export function drawGuides(
   creatingIds: Set<string> = new Set(),
 ): void {
   ctx.save();
+  ctx.globalCompositeOperation = 'difference';
   ctx.lineWidth = 1;
 
   for (const guide of guides) {
@@ -35,8 +35,8 @@ export function drawGuides(
     const isCreating      = creatingIds.has(guide.id);
     const isActive        = !isPendingDelete && (guide.id === activeId || isCreating);
 
-    ctx.globalAlpha  = isPendingDelete ? 0.3  : (isActive ? 1.0 : 0.6);
-    ctx.strokeStyle  = isPendingDelete ? 'rgba(120,120,130,1)' : (isActive ? GUIDE_ACTIVE_COLOR : GUIDE_COLOR);
+    ctx.globalAlpha = isPendingDelete ? 0.3 : (isActive ? 1.0 : 0.6);
+    ctx.strokeStyle = '#FD4E62';
 
     if (isPendingDelete) {
       drawPendingDeleteGuide(ctx, guide, width, height, viewport, scenes);
@@ -66,73 +66,76 @@ export function drawGuideRulerLabels(
   width: number,
   height: number,
   guides: Guide[],
-  activeId: string | null,
+  activeIds: string[],
   viewport: ViewportCtx,
   rulerState: RulerState,
   scenes: Scene[] = [],
 ): void {
-  if (activeId === null) return;
-  const guide = guides.find(g => g.id === activeId);
-  if (!guide) return;
-
-  const worldPos = guideWorldCoord(guide, scenes);
+  if (activeIds.length === 0) return;
 
   ctx.save();
   ctx.font = '10px monospace';
 
-  if (guide.axis === 'x') {
-    // Vertical guide → label in the top ruler (horizontal gradient)
-    const sx = Math.round(worldToScreenX(worldPos, viewport));
-    if (sx < RULER_SIZE || sx > width) { ctx.restore(); return; }
+  for (const activeId of activeIds) {
+    const guide = guides.find(g => g.id === activeId);
+    if (!guide) continue;
 
-    const label = String(Math.round(displayValue(worldPos, 'x', rulerState)));
-    const tw    = ctx.measureText(label).width;
-    const half  = tw / 2 + LABEL_PAD;
-    const x0    = sx - half - LABEL_FADE;
-    const x1    = sx + half + LABEL_FADE;
-    const span  = x1 - x0;
+    const worldPos = guideWorldCoord(guide, scenes);
 
-    const grad = ctx.createLinearGradient(x0, 0, x1, 0);
-    grad.addColorStop(0,                     RULER_BG_CLEAR);
-    grad.addColorStop(LABEL_FADE / span,     RULER_BG_SOLID);
-    grad.addColorStop(1 - LABEL_FADE / span, RULER_BG_SOLID);
-    grad.addColorStop(1,                     RULER_BG_CLEAR);
-    ctx.fillStyle = grad;
-    ctx.fillRect(x0, 0, span, RULER_SIZE);
+    if (guide.axis === 'x') {
+      // Vertical guide → label in the top ruler (horizontal gradient)
+      const sx = Math.round(worldToScreenX(worldPos, viewport));
+      if (sx < RULER_SIZE || sx > width) continue;
 
-    ctx.fillStyle    = GUIDE_ACTIVE_COLOR;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(label, sx, 3);
+      const label = String(Math.round(displayValue(worldPos, 'x', rulerState)));
+      const tw    = ctx.measureText(label).width;
+      const half  = tw / 2 + LABEL_PAD;
+      const x0    = sx - half - LABEL_FADE;
+      const x1    = sx + half + LABEL_FADE;
+      const span  = x1 - x0;
 
-  } else {
-    // Horizontal guide → label in the left ruler (vertical gradient)
-    const sy = Math.round(worldToScreenY(worldPos, viewport));
-    if (sy < RULER_SIZE || sy > height) { ctx.restore(); return; }
+      const grad = ctx.createLinearGradient(x0, 0, x1, 0);
+      grad.addColorStop(0,                     RULER_BG_CLEAR);
+      grad.addColorStop(LABEL_FADE / span,     RULER_BG_SOLID);
+      grad.addColorStop(1 - LABEL_FADE / span, RULER_BG_SOLID);
+      grad.addColorStop(1,                     RULER_BG_CLEAR);
+      ctx.fillStyle = grad;
+      ctx.fillRect(x0, 0, span, RULER_SIZE);
 
-    const label = String(Math.round(displayValue(worldPos, 'y', rulerState)));
-    const tw    = ctx.measureText(label).width;
-    const half  = tw / 2 + LABEL_PAD;
-    const y0    = sy - half - LABEL_FADE;
-    const y1    = sy + half + LABEL_FADE;
-    const span  = y1 - y0;
+      ctx.fillStyle    = '#FD4E62';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label, sx, 3);
 
-    const grad = ctx.createLinearGradient(0, y0, 0, y1);
-    grad.addColorStop(0,                     RULER_BG_CLEAR);
-    grad.addColorStop(LABEL_FADE / span,     RULER_BG_SOLID);
-    grad.addColorStop(1 - LABEL_FADE / span, RULER_BG_SOLID);
-    grad.addColorStop(1,                     RULER_BG_CLEAR);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, y0, RULER_SIZE, span);
+    } else {
+      // Horizontal guide → label in the left ruler (vertical gradient)
+      const sy = Math.round(worldToScreenY(worldPos, viewport));
+      if (sy < RULER_SIZE || sy > height) continue;
 
-    ctx.save();
-    ctx.translate((RULER_SIZE - 8) / 2, sy);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillStyle    = GUIDE_ACTIVE_COLOR;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
+      const label = String(Math.round(displayValue(worldPos, 'y', rulerState)));
+      const tw    = ctx.measureText(label).width;
+      const half  = tw / 2 + LABEL_PAD;
+      const y0    = sy - half - LABEL_FADE;
+      const y1    = sy + half + LABEL_FADE;
+      const span  = y1 - y0;
+
+      const grad = ctx.createLinearGradient(0, y0, 0, y1);
+      grad.addColorStop(0,                     RULER_BG_CLEAR);
+      grad.addColorStop(LABEL_FADE / span,     RULER_BG_SOLID);
+      grad.addColorStop(1 - LABEL_FADE / span, RULER_BG_SOLID);
+      grad.addColorStop(1,                     RULER_BG_CLEAR);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, y0, RULER_SIZE, span);
+
+      ctx.save();
+      ctx.translate((RULER_SIZE - 8) / 2, sy);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle    = '#FD4E62';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    }
   }
 
   ctx.restore();

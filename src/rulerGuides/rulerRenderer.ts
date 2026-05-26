@@ -17,9 +17,9 @@ const MINOR_TICK_LENGTH = 4;
 const MINOR_TICKS_PER_MAJOR = 5;
 
 // Colors
-const RULER_BG    = '#131316';
+const RULER_BG    = '#131316CC';
 const TICK_MAJOR  = '#50505D';
-const TICK_MINOR  = 'rgba(80, 80, 93, 0.8)';
+const TICK_MINOR  = '#40404A80';
 const LABEL_COLOR = 'rgba(255, 255, 255, 0.5)';
 const BORDER_COLOR = 'rgba(255, 255, 255, 0.08)';
 
@@ -63,6 +63,7 @@ function drawTopRulerTicks(
   step: number,
   showMinorTicks: boolean,
   showNumbers: boolean,
+  suppressZero = false,
 ): void {
   const origin = activeOrigin(rulerState);
   const worldLeft = screenToWorldX(RULER_SIZE, viewport);
@@ -70,7 +71,7 @@ function drawTopRulerTicks(
   const firstMajor = Math.ceil((worldLeft - origin.x) / step) * step + origin.x;
   const minorStep = step / MINOR_TICKS_PER_MAJOR;
 
-  if (showNumbers) ctx.font = '10px monospace';
+  ctx.font = '10px monospace';
 
   for (let wx = firstMajor; wx <= worldRight + step; wx += step) {
     const sx = crisp(worldToScreenX(wx, viewport));
@@ -83,8 +84,8 @@ function drawTopRulerTicks(
     ctx.lineTo(sx, RULER_SIZE);
     ctx.stroke();
 
-    if (showNumbers) {
-      const label = String(Math.round(displayValue(wx, 'x', rulerState)));
+    const label = String(Math.round(displayValue(wx, 'x', rulerState)));
+    if (showNumbers || (label === '0' && !suppressZero)) {
       ctx.fillStyle = LABEL_COLOR;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -113,6 +114,7 @@ function drawLeftRulerTicks(
   step: number,
   showMinorTicks: boolean,
   showNumbers: boolean,
+  suppressZero = false,
 ): void {
   const origin = activeOrigin(rulerState);
   const worldTop = screenToWorldY(RULER_SIZE, viewport);
@@ -120,7 +122,7 @@ function drawLeftRulerTicks(
   const firstMajor = Math.ceil((worldTop - origin.y) / step) * step + origin.y;
   const minorStep = step / MINOR_TICKS_PER_MAJOR;
 
-  if (showNumbers) ctx.font = '10px monospace';
+  ctx.font = '10px monospace';
 
   for (let wy = firstMajor; wy <= worldBottom + step; wy += step) {
     const sy = crisp(worldToScreenY(wy, viewport));
@@ -133,8 +135,8 @@ function drawLeftRulerTicks(
     ctx.lineTo(RULER_SIZE, sy);
     ctx.stroke();
 
-    if (showNumbers) {
-      const label = String(Math.round(displayValue(wy, 'y', rulerState)));
+    const label = String(Math.round(displayValue(wy, 'y', rulerState)));
+    if (showNumbers || (label === '0' && !suppressZero)) {
       ctx.fillStyle = LABEL_COLOR;
       ctx.save();
       ctx.translate((RULER_SIZE - MAJOR_TICK_LENGTH) / 2, sy);
@@ -226,6 +228,7 @@ export function drawRulers(
   now: number,
   minorTicks = true,
   showNumbers = true,
+  suppressZero = false,
 ): { isAnimating: boolean } {
   const opacities = getRenderOpacities(rulerState, now);
 
@@ -237,16 +240,16 @@ export function drawRulers(
   if (opacities.isAnimating && rulerState.previousStep !== null) {
     ctx.save();
     ctx.globalAlpha = opacities.previous;
-    drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers);
-    drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers);
+    drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers, suppressZero);
+    drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers, suppressZero);
     ctx.restore();
   }
 
   // Current tick density fades in (or is fully opaque when not animating).
   ctx.save();
   ctx.globalAlpha = opacities.current;
-  drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers);
-  drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers);
+  drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers, suppressZero);
+  drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers, suppressZero);
   ctx.restore();
 
   drawCorner(ctx);
@@ -269,7 +272,7 @@ export function drawSceneRulerHighlight(
   viewport: ViewportCtx,
   rulerState: RulerState,
 ): void {
-  const HIGHLIGHT = 'rgba(80, 80, 93, 0.2)';
+  const HIGHLIGHT = '#4570FF20';
   const LABEL     = 'rgba(77, 143, 255, 0.9)';
   const LABEL_X   = (RULER_SIZE - MAJOR_TICK_LENGTH) / 2; // 8 — same x-center as tick labels
 
@@ -289,11 +292,11 @@ export function drawSceneRulerHighlight(
     ctx.fillStyle    = LABEL;
     ctx.textBaseline = 'top';
 
-    ctx.textAlign = 'left';
-    ctx.fillText(String(Math.round(displayValue(scene.bbox.x, 'x', rulerState))), visLeft + 2, 3);
-
     ctx.textAlign = 'right';
-    ctx.fillText(String(Math.round(displayValue(scene.bbox.x + scene.bbox.width, 'x', rulerState))), visRight - 2, 3);
+    ctx.fillText(String(Math.round(displayValue(scene.bbox.x, 'x', rulerState))), visLeft - 2, 3);
+
+    ctx.textAlign = 'left';
+    ctx.fillText(String(Math.round(displayValue(scene.bbox.x + scene.bbox.width, 'x', rulerState))), visRight + 2, 3);
   }
 
   // ── Left ruler: vertical span ────────────────────────────────────────────────
@@ -309,19 +312,19 @@ export function drawSceneRulerHighlight(
     ctx.fillStyle    = LABEL;
     ctx.textBaseline = 'middle';
 
-    // Top label: right-aligned at anchor → text extends downward in screen space (inside highlight)
+    // Top label: left-aligned at anchor → text extends upward in screen space (outside highlight)
     ctx.save();
-    ctx.translate(LABEL_X, visTop + 2);
+    ctx.translate(LABEL_X, visTop - 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'right';
+    ctx.textAlign = 'left';
     ctx.fillText(String(Math.round(displayValue(scene.bbox.y, 'y', rulerState))), 0, 0);
     ctx.restore();
 
-    // Bottom label: left-aligned at anchor → text extends upward in screen space (inside highlight)
+    // Bottom label: right-aligned at anchor → text extends downward in screen space (outside highlight)
     ctx.save();
-    ctx.translate(LABEL_X, visBottom - 2);
+    ctx.translate(LABEL_X, visBottom + 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'right';
     ctx.fillText(String(Math.round(displayValue(scene.bbox.y + scene.bbox.height, 'y', rulerState))), 0, 0);
     ctx.restore();
   }
