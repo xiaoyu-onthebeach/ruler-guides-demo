@@ -132,8 +132,7 @@ export function DemoApp() {
   const hoveredSceneIdRef   = useRef<string | null>(null);
   const editingSceneIdRef   = useRef<string | null>(null);
   const rulersVisibleRef    = useRef<boolean>(false);
-  const minorTicksRef       = useRef<boolean>(true);
-  const showNumbersRef      = useRef<boolean>(true);
+
   const taskBarWrapperRef   = useRef<HTMLDivElement>(null);
   const selectedGuideIdRef  = useRef<string | null>(null);
   const guideMouseDownRef   = useRef<{ x: number; y: number } | null>(null);
@@ -142,8 +141,6 @@ export function DemoApp() {
   const [ctxMenu, setCtxMenu]         = useState<{ open: boolean; x: number; y: number; kind: 'main' | 'left-ruler' }>({ open: false, x: 0, y: 0, kind: 'main' });
   const [zoomPercent, setZoomPercent] = useState(100);
   const [rulersVisible, setRulersVisible] = useState(false);
-  const [showNumbers, setShowNumbers] = useState(true);
-  const [minorTicks, setMinorTicks]   = useState(true);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -324,7 +321,7 @@ export function DemoApp() {
     // (the highlight's left-edge label shows "0" instead)
     if (rulersVisibleRef.current) {
       const hasHighlight = selectedImage !== null || selectedScene !== null;
-      const { isAnimating } = drawRulers(ctx, cssW, cssH, rulerStateRef.current, vp, performance.now(), minorTicksRef.current, showNumbersRef.current, hasHighlight);
+      const { isAnimating } = drawRulers(ctx, cssW, cssH, rulerStateRef.current, vp, performance.now(), true, false, hasHighlight, selectedScene);
       if (isAnimating) {
         scheduleRender();
       } else {
@@ -426,7 +423,7 @@ export function DemoApp() {
         : activeDrag.kind === 'creating-cross-guide'
           ? [activeDrag.xGuideId, activeDrag.yGuideId]
           : activeGuideId ? [activeGuideId] : [];
-      drawGuideRulerLabels(ctx, cssW, cssH, guidesRef.current, rulerLabelIds, vp, rulerStateRef.current, scenes);
+      drawGuideRulerLabels(ctx, cssW, cssH, guidesRef.current, rulerLabelIds, vp, rulerStateRef.current, scenes, selectedScene);
     }
 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -534,17 +531,6 @@ export function DemoApp() {
     scheduleRender();
   }, [scheduleRender]);
 
-  const onToggleNumbers = useCallback(() => {
-    showNumbersRef.current = !showNumbersRef.current;
-    setShowNumbers(showNumbersRef.current);
-    scheduleRender();
-  }, [scheduleRender]);
-
-  const onToggleMinorTicks = useCallback(() => {
-    minorTicksRef.current = !minorTicksRef.current;
-    setMinorTicks(minorTicksRef.current);
-    scheduleRender();
-  }, [scheduleRender]);
 
   // ── Context menu ────────────────────────────────────────────────────────────
 
@@ -1006,36 +992,6 @@ export function DemoApp() {
           onContextMenu={onContextMenu}
         />
 
-        {/* Debug toggles — fixed above the ViewControls pill */}
-        <div style={{
-          position: 'fixed', top: 16, right: 16, zIndex: 20,
-          display: 'flex', gap: 8, userSelect: 'none',
-        }}>
-          {(['numbers', 'minor ticks'] as const).map((label) => {
-            const active = label === 'numbers' ? showNumbers : minorTicks;
-            const toggle = label === 'numbers' ? onToggleNumbers : onToggleMinorTicks;
-            return (
-              <button
-                key={label}
-                onClick={toggle}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 20,
-                  border: `1px solid ${active ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
-                  background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
-                  color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
-                  fontFamily: "'Saans', system-ui, sans-serif",
-                  fontSize: 12,
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                  transition: 'all 180ms cubic-bezier(0.4, 0, 0.2, 1)',
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
 
         <ViewControls
           zoom={zoomPercent}

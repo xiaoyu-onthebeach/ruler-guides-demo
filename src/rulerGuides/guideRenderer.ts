@@ -8,9 +8,11 @@ import {
 } from './coordinateSystem';
 
 // #131316 = rgb(19,19,22) — must match rulerRenderer.ts
-
-const RULER_BG_SOLID     = 'rgba(19,19,22,1)';
-const RULER_BG_CLEAR     = 'rgba(19,19,22,0)';
+// Highlight band = #4570FF20 composited over ruler bg → rgb(25,31,51)
+const RULER_BG_SOLID      = 'rgba(19,19,22,1)';
+const RULER_BG_CLEAR      = 'rgba(19,19,22,0)';
+const HIGHLIGHT_BG_SOLID  = 'rgba(25,31,51,1)';
+const HIGHLIGHT_BG_CLEAR  = 'rgba(25,31,51,0)';
 
 const LABEL_PAD  = 3;   // px between text edge and solid bg region
 const LABEL_FADE = 10;  // px of gradient fade on each side
@@ -70,6 +72,7 @@ export function drawGuideRulerLabels(
   viewport: ViewportCtx,
   rulerState: RulerState,
   scenes: Scene[] = [],
+  selectedScene: Scene | null = null,
 ): void {
   if (activeIds.length === 0) return;
 
@@ -87,6 +90,13 @@ export function drawGuideRulerLabels(
       const sx = Math.round(worldToScreenX(worldPos, viewport));
       if (sx < RULER_SIZE || sx > width) continue;
 
+      // Use highlight band color when the guide falls within the selected scene's x-span
+      const inBand = selectedScene !== null
+        && sx >= worldToScreenX(selectedScene.bbox.x, viewport)
+        && sx <= worldToScreenX(selectedScene.bbox.x + selectedScene.bbox.width, viewport);
+      const bgSolid = inBand ? HIGHLIGHT_BG_SOLID : RULER_BG_SOLID;
+      const bgClear = inBand ? HIGHLIGHT_BG_CLEAR : RULER_BG_CLEAR;
+
       const label = String(Math.round(displayValue(worldPos, 'x', rulerState)));
       const tw    = ctx.measureText(label).width;
       const half  = tw / 2 + LABEL_PAD;
@@ -95,10 +105,10 @@ export function drawGuideRulerLabels(
       const span  = x1 - x0;
 
       const grad = ctx.createLinearGradient(x0, 0, x1, 0);
-      grad.addColorStop(0,                     RULER_BG_CLEAR);
-      grad.addColorStop(LABEL_FADE / span,     RULER_BG_SOLID);
-      grad.addColorStop(1 - LABEL_FADE / span, RULER_BG_SOLID);
-      grad.addColorStop(1,                     RULER_BG_CLEAR);
+      grad.addColorStop(0,                     bgClear);
+      grad.addColorStop(LABEL_FADE / span,     bgSolid);
+      grad.addColorStop(1 - LABEL_FADE / span, bgSolid);
+      grad.addColorStop(1,                     bgClear);
       ctx.fillStyle = grad;
       ctx.fillRect(x0, 0, span, RULER_SIZE);
 
@@ -112,6 +122,13 @@ export function drawGuideRulerLabels(
       const sy = Math.round(worldToScreenY(worldPos, viewport));
       if (sy < RULER_SIZE || sy > height) continue;
 
+      // Use highlight band color when the guide falls within the selected scene's y-span
+      const inBand = selectedScene !== null
+        && sy >= worldToScreenY(selectedScene.bbox.y, viewport)
+        && sy <= worldToScreenY(selectedScene.bbox.y + selectedScene.bbox.height, viewport);
+      const bgSolid = inBand ? HIGHLIGHT_BG_SOLID : RULER_BG_SOLID;
+      const bgClear = inBand ? HIGHLIGHT_BG_CLEAR : RULER_BG_CLEAR;
+
       const label = String(Math.round(displayValue(worldPos, 'y', rulerState)));
       const tw    = ctx.measureText(label).width;
       const half  = tw / 2 + LABEL_PAD;
@@ -120,10 +137,10 @@ export function drawGuideRulerLabels(
       const span  = y1 - y0;
 
       const grad = ctx.createLinearGradient(0, y0, 0, y1);
-      grad.addColorStop(0,                     RULER_BG_CLEAR);
-      grad.addColorStop(LABEL_FADE / span,     RULER_BG_SOLID);
-      grad.addColorStop(1 - LABEL_FADE / span, RULER_BG_SOLID);
-      grad.addColorStop(1,                     RULER_BG_CLEAR);
+      grad.addColorStop(0,                     bgClear);
+      grad.addColorStop(LABEL_FADE / span,     bgSolid);
+      grad.addColorStop(1 - LABEL_FADE / span, bgSolid);
+      grad.addColorStop(1,                     bgClear);
       ctx.fillStyle = grad;
       ctx.fillRect(0, y0, RULER_SIZE, span);
 

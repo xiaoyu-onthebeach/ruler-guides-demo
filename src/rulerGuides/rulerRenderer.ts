@@ -64,6 +64,7 @@ function drawTopRulerTicks(
   showMinorTicks: boolean,
   showNumbers: boolean,
   suppressZero = false,
+  suppressNear: number[] = [],
 ): void {
   const origin = activeOrigin(rulerState);
   const worldLeft = screenToWorldX(RULER_SIZE, viewport);
@@ -85,7 +86,12 @@ function drawTopRulerTicks(
     ctx.stroke();
 
     const label = String(Math.round(displayValue(wx, 'x', rulerState)));
-    if (showNumbers || (label === '0' && !suppressZero)) {
+    const wantLabel = showNumbers || (label === '0' && !suppressZero);
+    const nearEdge = wantLabel && suppressNear.some(p => {
+      const tw = ctx.measureText(label).width;
+      return Math.abs(sx - p) < tw / 2 + 28;
+    });
+    if (wantLabel && !nearEdge) {
       ctx.fillStyle = LABEL_COLOR;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -115,6 +121,7 @@ function drawLeftRulerTicks(
   showMinorTicks: boolean,
   showNumbers: boolean,
   suppressZero = false,
+  suppressNear: number[] = [],
 ): void {
   const origin = activeOrigin(rulerState);
   const worldTop = screenToWorldY(RULER_SIZE, viewport);
@@ -136,7 +143,12 @@ function drawLeftRulerTicks(
     ctx.stroke();
 
     const label = String(Math.round(displayValue(wy, 'y', rulerState)));
-    if (showNumbers || (label === '0' && !suppressZero)) {
+    const wantLabel = showNumbers || (label === '0' && !suppressZero);
+    const nearEdge = wantLabel && suppressNear.some(p => {
+      const tw = ctx.measureText(label).width;
+      return Math.abs(sy - p) < tw / 2 + 28;
+    });
+    if (wantLabel && !nearEdge) {
       ctx.fillStyle = LABEL_COLOR;
       ctx.save();
       ctx.translate((RULER_SIZE - MAJOR_TICK_LENGTH) / 2, sy);
@@ -229,8 +241,19 @@ export function drawRulers(
   minorTicks = true,
   showNumbers = true,
   suppressZero = false,
+  selectedScene: Scene | null = null,
 ): { isAnimating: boolean } {
   const opacities = getRenderOpacities(rulerState, now);
+
+  // Screen positions of the highlight band edges — tick labels near these are suppressed.
+  const suppressX: number[] = selectedScene ? [
+    worldToScreenX(selectedScene.bbox.x, viewport),
+    worldToScreenX(selectedScene.bbox.x + selectedScene.bbox.width, viewport),
+  ] : [];
+  const suppressY: number[] = selectedScene ? [
+    worldToScreenY(selectedScene.bbox.y, viewport),
+    worldToScreenY(selectedScene.bbox.y + selectedScene.bbox.height, viewport),
+  ] : [];
 
   // Backgrounds are drawn once — not affected by crossfade opacity.
   drawTopRulerBg(ctx, width);
@@ -240,16 +263,16 @@ export function drawRulers(
   if (opacities.isAnimating && rulerState.previousStep !== null) {
     ctx.save();
     ctx.globalAlpha = opacities.previous;
-    drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers, suppressZero);
-    drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers, suppressZero);
+    drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers, suppressZero, suppressX);
+    drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.previousStep, minorTicks, showNumbers, suppressZero, suppressY);
     ctx.restore();
   }
 
   // Current tick density fades in (or is fully opaque when not animating).
   ctx.save();
   ctx.globalAlpha = opacities.current;
-  drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers, suppressZero);
-  drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers, suppressZero);
+  drawTopRulerTicks(ctx, width, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers, suppressZero, suppressX);
+  drawLeftRulerTicks(ctx, height, rulerState, viewport, rulerState.currentStep, minorTicks, showNumbers, suppressZero, suppressY);
   ctx.restore();
 
   drawCorner(ctx);
